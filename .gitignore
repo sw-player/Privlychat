@@ -1,0 +1,12 @@
+# Node.js
+node_modules/
+npm-debug.log*
+dist/
+build/
+
+# 환경설정
+.env
+
+# IDE
+.vscode/
+.DS_Store
