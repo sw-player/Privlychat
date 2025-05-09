@@ -1,38 +1,109 @@
-.App {
-  text-align: center;
-}
-
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+/* client/src/App.css */
+.App-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 600px;
+  margin: 0 auto;
+  border: 1px solid #ccc;
+  font-family: sans-serif;
 }
 
 .App-header {
-  background-color: #282c34;
-  min-height: 100vh;
+  background-color: #f0f0f0;
+  padding: 15px;
+  text-align: center;
+  border-bottom: 1px solid #ddd;
+}
+
+.App-header h1 {
+  margin: 0 0 10px 0;
+  font-size: 1.5em;
+}
+
+.user-select-container {
+  margin-bottom: 10px;
+}
+
+.server-info {
+  font-size: 0.9em;
+  color: green;
+}
+
+.error-info {
+  font-size: 0.9em;
+  color: red;
+  font-weight: bold;
+}
+
+.chat-window {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 15px;
+  display: flex;
+  flex-direction: column-reverse; /* 새 메시지가 아래에 오도록 */
+}
+
+.messages-list {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
+  gap: 10px;
+}
+
+.message-item {
+  padding: 8px 12px;
+  border-radius: 15px;
+  max-width: 70%;
+  word-wrap: break-word;
+}
+
+.message-item.sent {
+  background-color: #dcf8c6;
+  align-self: flex-end;
+  border-bottom-right-radius: 5px;
+}
+
+.message-item.received {
+  background-color: #fff;
+  align-self: flex-start;
+  border: 1px solid #eee;
+  border-bottom-left-radius: 5px;
+}
+.message-item.received-error {
+  background-color: #ffebee; /* 연한 빨간색 배경 */
+  color: #c62828; /* 어두운 빨간색 텍스트 */
+  align-self: flex-start;
+  border: 1px solid #ffcdd2;
+  border-bottom-left-radius: 5px;
+  font-style: italic;
+}
+
+
+.App-footer {
+  display: flex;
+  padding: 10px;
+  border-top: 1px solid #ddd;
+  background-color: #f0f0f0;
+}
+
+.message-input {
+  flex-grow: 1;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 20px;
+  margin-right: 10px;
+}
+
+.send-button {
+  padding: 10px 15px;
+  background-color: #007bff;
   color: white;
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
 }
 
-.App-link {
-  color: #61dafb;
-}
-
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.send-button:disabled {
+  background-color: #aaa;
+  cursor: not-allowed;
 }
