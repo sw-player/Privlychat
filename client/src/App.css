@@ -71,12 +71,27 @@ body {
 }
 
 .user-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 10px 12px;
   cursor: pointer;
   border-radius: 6px;
   margin-bottom: 5px;
   color: #444;
   transition: background-color 0.2s ease, color 0.2s ease; /* color 트랜지션 추가 */
+}
+
+.unread-badge {
+  background-color: #f44336; /* 빨간색 배경 */
+  color: white;
+  font-size: 0.75em;
+  font-weight: bold;
+  padding: 3px 7px; /* 패딩 조정 */
+  border-radius: 10px; /* 둥근 모서리 */
+  min-width: 20px; /* 최소 너비 (숫자가 하나일 때도 동그랗게 보이도록) */
+  text-align: center;
+  line-height: 1; /* 줄 간격 조정 */
 }
 
 .user-list-item:hover {
