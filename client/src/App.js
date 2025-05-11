@@ -14,7 +14,7 @@ const LOCAL_STORAGE_MESSAGES_PREFIX = 'privlychat_messages_';
 const getConversationKey = (userId1, userId2) => {
   const sortedIds = [userId1, userId2].sort();
   return `${LOCAL_STORAGE_MESSAGES_PREFIX}${sortedIds[0]}_${sortedIds[1]}`;
-};
+};  
 
 export default function App() {
   const [currentUserId, setCurrentUserId] = useState('');
