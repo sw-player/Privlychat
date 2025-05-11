@@ -6,7 +6,7 @@ import sodium from 'libsodium-wrappers';
 import { generateCryptoBoxKeyPair, registerPublicKey, fetchPublicKey } from './crypto/crypto_box_keys';
 import { encryptMessage, decryptMessage } from './crypto/crypto_box_message';
 
-const WEBSOCKET_URL = process.env.REACT_APP_WEBSOCKET_URL || 'ws://localhost:8080';
+const WEBSOCKET_URL = process.env.REACT_APP_WEBSOCKET_URL || 'https://privlychat.netlify.app/';
 const USER_IDS = ['alice_ws', 'bob_ws', 'charlie_ws'];
 const LOCAL_STORAGE_KEY_PREFIX = 'privlychat_userkeys_';
 const LOCAL_STORAGE_MESSAGES_PREFIX = 'privlychat_messages_';

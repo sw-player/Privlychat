@@ -23,7 +23,7 @@ export async function generateCryptoBoxKeyPair() {
 export async function registerPublicKey(userId, publicKeyB64) {
   // 서버의 공개키 등록 엔드포인트 (예시)
   // 실제 서버 구현에 맞게 URL과 요청 본문을 수정해야 합니다.
-  const response = await fetch('http://localhost:8888/keys/register_box_key', {
+  const response = await fetch('https://privlychat.netlify.app/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userId, publicKey: publicKeyB64 }), // 서버에서 받을 필드명에 맞추세요.
@@ -46,7 +46,7 @@ export async function registerPublicKey(userId, publicKeyB64) {
 export async function fetchPublicKey(userId) {
   // 서버의 공개키 조회 엔드포인트 (예시)
   // 실제 서버 구현에 맞게 URL을 수정해야 합니다.
-  const response = await fetch(`http://localhost:8888/keys/box_key/${userId}`);
+  const response = await fetch(`https://privlychat.netlify.app/${userId}`);
   if (!response.ok) {
     const errorBody = await response.text();
     throw new Error(`${userId}의 공개키 조회 실패: ${response.status} ${errorBody}`);
