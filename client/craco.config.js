@@ -9,6 +9,7 @@ module.exports = {
         ...webpackConfig.resolve.fallback, // 기존 fallback 유지
         "crypto": require.resolve("crypto-browserify"),
         "stream": require.resolve("stream-browserify"),
+        "vm": require.resolve("vm-browserify"),
         // "assert": require.resolve("assert/"), // 필요에 따라 추가
         // "http": require.resolve("stream-http"), // 필요에 따라 추가
         // "https": require.resolve("https-browserify"), // 필요에 따라 추가
@@ -21,6 +22,7 @@ module.exports = {
          ...(webpackConfig.plugins || []),
          new webpack.ProvidePlugin({
            Buffer: ['buffer', 'Buffer'],
+           process: 'process/browser',
          }),
        ];
 
