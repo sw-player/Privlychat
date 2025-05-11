@@ -21,7 +21,7 @@ export default function App() {
   const [recipientId, setRecipientId] = useState('');
   const [messageInput, setMessageInput] = useState('');
   const [messages, setMessages] = useState([]);
-  const [ws, setWs] = useState(null);
+  const [ws, setWs] = useState(null); // WebSocket 연결 객체 상태
   const [serverInfo, setServerInfo] = useState('사용자를 선택해주세요.');
   const [errorInfo, setErrorInfo] = useState('');
   const [isSodiumReady, setIsSodiumReady] = useState(false);
@@ -29,8 +29,7 @@ export default function App() {
 
   const currentUserKeysRef = useRef(null);
   const messagesEndRef = useRef(null);
-  // StrictMode에서 특정 userId에 대한 초기화 *시도*가 이미 있었는지 추적
-  const initializationAttemptedForUser = useRef(new Set());
+  const effectRanForUser = useRef(new Set());
 
   useEffect(() => {
     const initSodium = async () => {
@@ -46,7 +45,6 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // handleIncomingMessage는 currentUserId에만 의존하도록 수정 (나머지는 안정적)
   const handleIncomingMessage = useCallback(async (senderId, payload, isCurrentChatActive) => {
     if (!currentUserKeysRef.current?.privateKey) {
       console.error(`[${currentUserId} RECV] 나의 개인키(ref)가 없습니다. 복호화 불가.`);
@@ -84,14 +82,14 @@ export default function App() {
         setMessages(prev => [...prev, { sender: senderId, text: `(암호문 복호화 실패)`, type: 'received-error', timestamp: new Date() }]);
       }
     }
-  }, [currentUserId]); // 의존성에서 set 함수들 제거 (안정적이라고 간주)
+  }, [currentUserId]);
 
+  // 사용자 초기화 및 WebSocket 연결을 담당하는 주 useEffect
   useEffect(() => {
     if (!isSodiumReady) {
       console.log(`[Effect ${currentUserId || 'NoUser'}] Sodium 아직 준비 안됨, 대기.`);
       return;
     }
-
     if (!currentUserId) {
       console.log(`[Effect NoUser] currentUserId가 선택되지 않았습니다. 정리합니다.`);
       setServerInfo('먼저 사용자를 선택해주세요.');
@@ -99,16 +97,11 @@ export default function App() {
       currentUserKeysRef.current = null;
       setMessages([]);
       setRecipientId('');
-      initializationAttemptedForUser.current.clear(); // 모든 사용자 초기화 시도 상태 해제
       return;
     }
 
-    // StrictMode 이중 실행 방지: 현재 사용자에 대한 설정 작업이 이미 "시도"되었다면 건너뜀.
-    // 이 플래그는 이 useEffect가 특정 currentUserId로 처음 실행될 때 설정됨.
-    if (process.env.NODE_ENV === 'development' && initializationAttemptedForUser.current.has(currentUserId)) {
-      console.log(`[Effect ${currentUserId}] StrictMode: 이미 이 사용자(${currentUserId})로 초기화 시도됨. 건너뜁니다.`);
-      // 만약 ws 연결이 끊어졌다면 여기서 재연결 로직을 넣을 수 있지만,
-      // onclose 핸들러에서 initializationAttemptedForUser를 delete하면 자연스럽게 재시도됨.
+    if (process.env.NODE_ENV === 'development' && effectRanForUser.current.has(currentUserId)) {
+      console.log(`[Effect ${currentUserId}] StrictMode: 이미 이 사용자(${currentUserId})로 설정 완료됨. 건너뜁니다.`);
       return;
     }
 
@@ -117,21 +110,17 @@ export default function App() {
     setErrorInfo('');
     setServerInfo(`'${currentUserId.replace('_ws','')}' 사용자 초기화 중...`);
 
-    // 이전 WebSocket 연결이 있다면 명시적으로 정리 (상태가 아직 이전 사용자 것일 수 있으므로)
-    if (ws) {
-      console.log(`[Effect ${currentUserId}] 이전 WebSocket 연결 (URL: ${ws.url}) 닫는 중...`);
-      ws.close();
-      setWs(null); // 상태를 null로 설정하여 이전 연결 객체 참조 제거
-    }
-    currentUserKeysRef.current = null; // 이전 사용자 키 정보 초기화
-
-    // StrictMode 이중 실행 방지를 위해, 실제 초기화 로직 실행 전에 플래그 설정
-    if (process.env.NODE_ENV === 'development') {
-      initializationAttemptedForUser.current.add(currentUserId);
-    }
+    let newWsInstance = null; 
 
     const initializeUser = async () => {
       try {
+        if (ws) { // 이 useEffect가 currentUserId 변경으로 실행될 때 이전 사용자의 ws를 닫음
+          console.log(`[Effect InitializeUser ${currentUserId}] 이전 WebSocket 연결 (URL: ${ws.url}) 닫는 중...`);
+          ws.close();
+          // setWs(null); // 여기서 setWs(null)을 하면 루프 유발 가능성 있음 (ws가 의존성 배열에 있다면)
+        }
+        currentUserKeysRef.current = null;
+
         let keys;
         const localStorageKey = `${LOCAL_STORAGE_KEY_PREFIX}${currentUserId}`;
         const storedKeysString = localStorage.getItem(localStorageKey);
@@ -140,9 +129,9 @@ export default function App() {
           try {
             keys = JSON.parse(storedKeysString);
             if (!keys || !keys.publicKey || !keys.privateKey) throw new Error('Invalid stored key format');
-            console.log(`[${currentUserId}] localStorage에서 키 로드 성공. 공개키: ${keys.publicKey.slice(0,10)}...`);
+            console.log(`[${currentUserId}] localStorage에서 키 로드 성공.`);
           } catch (e) {
-            console.warn(`[${currentUserId}] localStorage 키 파싱/유효성 오류. 새 키 생성. 오류:`, e);
+            console.warn(`[${currentUserId}] localStorage 키 파싱 오류. 새 키 생성.`, e);
             localStorage.removeItem(localStorageKey); keys = null;
           }
         }
@@ -151,12 +140,10 @@ export default function App() {
           console.log(`[${currentUserId}] 새 키 쌍 생성 중...`);
           keys = await generateCryptoBoxKeyPair();
           localStorage.setItem(localStorageKey, JSON.stringify(keys));
-          console.log(`[${currentUserId}] 새 키 생성 및 localStorage 저장 완료. 공개키: ${keys.publicKey.slice(0,10)}...`);
-          // 새 키를 생성했으므로 서버에 등록
+          console.log(`[${currentUserId}] 새 키 생성 및 localStorage 저장 완료.`);
           await registerPublicKey(currentUserId, keys.publicKey);
-          console.log(`[${currentUserId}]의 새 공개키 서버 등록 완료.`);
+          console.log(`[${currentUserId}]의 공개키 서버 등록 완료.`);
         } else {
-          // localStorage에 키가 있더라도, 서버가 재시작되었을 수 있으므로 현재 키를 서버에 알림
           console.log(`[${currentUserId}] localStorage 키 사용. 서버에 공개키 (재)등록 시도...`);
           await registerPublicKey(currentUserId, keys.publicKey);
           console.log(`[${currentUserId}]의 공개키 서버 등록/갱신 완료.`);
@@ -164,17 +151,19 @@ export default function App() {
         currentUserKeysRef.current = keys;
 
         console.log(`[${currentUserId}] WebSocket 서버 연결 시도... (${WEBSOCKET_URL}?userId=${currentUserId})`);
-        const newWs = new WebSocket(`${WEBSOCKET_URL}?userId=${currentUserId}`);
+        newWsInstance = new WebSocket(`${WEBSOCKET_URL}?userId=${currentUserId}`);
 
-        newWs.onopen = () => {
+        newWsInstance.onopen = () => {
           console.log(`[WS ${currentUserId}] 서버에 연결됨.`);
           setServerInfo(`'${currentUserId.replace('_ws','')}' 사용자로 서버에 연결되었습니다.`);
-          setWs(newWs); // 연결 성공 후 ws 상태 업데이트
+          setWs(newWsInstance); 
+          if (process.env.NODE_ENV === 'development') {
+            effectRanForUser.current.add(currentUserId);
+          }
         };
-        newWs.onmessage = (event) => {
+        newWsInstance.onmessage = (event) => {
           try {
             const receivedMsg = JSON.parse(event.data);
-            // console.log(`[WS ${currentUserId}] 메시지 수신:`, receivedMsg); // 로그가 너무 많으면 주석 처리
             if (receivedMsg.type === 'message' && receivedMsg.senderId && receivedMsg.payload) {
               const isCurrentChatActive = receivedMsg.senderId === recipientId;
               if (!isCurrentChatActive) {
@@ -188,39 +177,28 @@ export default function App() {
             } else if (receivedMsg.type === 'error') { setErrorInfo(`서버 오류: ${receivedMsg.message}`); }
           } catch (e) { console.error('수신 메시지 파싱 오류:', e); setErrorInfo('수신 메시지 처리 중 오류.'); }
         };
-        newWs.onclose = (event) => {
+        newWsInstance.onclose = (event) => {
           console.log(`[WS ${currentUserId}] 서버와 연결 끊김. Code: ${event.code}, Reason: ${event.reason}`);
           setServerInfo('서버와 연결이 끊어졌습니다.');
-          // 현재 활성 ws와 같을 때만 null로 설정하고, 초기화 시도 상태 해제
-          setWs(prevWs => {
-            if (prevWs === newWs) {
-              if (process.env.NODE_ENV === 'development') {
-                initializationAttemptedForUser.current.delete(currentUserId);
-              }
-              return null;
-            }
-            return prevWs;
-          });
+          setWs(prevWs => (prevWs === newWsInstance ? null : prevWs));
+          if (process.env.NODE_ENV === 'development') {
+            effectRanForUser.current.delete(currentUserId);
+          }
         };
-        newWs.onerror = (error) => {
+        newWsInstance.onerror = (error) => {
           console.error(`[WS ${currentUserId}] WebSocket 오류:`, error);
           setErrorInfo('WebSocket 연결 오류.');
-          setWs(prevWs => {
-            if (prevWs === newWs) {
-              if (process.env.NODE_ENV === 'development') {
-                initializationAttemptedForUser.current.delete(currentUserId);
-              }
-              return null;
-            }
-            return prevWs;
-          });
+          setWs(prevWs => (prevWs === newWsInstance ? null : prevWs));
+          if (process.env.NODE_ENV === 'development') {
+            effectRanForUser.current.delete(currentUserId);
+          }
         };
       } catch (err) {
         console.error(`[${currentUserId}] 사용자 초기화 중 심각한 오류:`, err);
         setErrorInfo(`초기화 오류: ${err.message}`);
         setWs(null); currentUserKeysRef.current = null;
         if (process.env.NODE_ENV === 'development') {
-          initializationAttemptedForUser.current.delete(currentUserId);
+          effectRanForUser.current.delete(currentUserId);
         }
       }
     };
@@ -228,24 +206,21 @@ export default function App() {
     initializeUser();
 
     return () => {
-      console.log(`useEffect 클린업 (currentUserId: ${currentUserId}). 현재 ws 상태: ${ws ? ws.readyState : 'null'}`);
-      // 이 cleanup 함수는 currentUserId가 변경되거나 컴포넌트가 언마운트될 때 호출됩니다.
-      // StrictMode의 첫 번째 "unmount" 시에도 호출됩니다.
-      // 여기서 ws를 닫고, 다음 effect 실행 시 새 연결을 만듭니다.
-      if (ws) {
-        console.log(`[클린업 ${currentUserId}] WebSocket 연결 닫는 중 (URL: ${ws.url}).`);
+      console.log(`useEffect 클린업 (currentUserId: ${currentUserId}).`);
+      if (newWsInstance) { // 이 effect 실행에서 생성된 인스턴스를 닫음
+        console.log(`[클린업 ${currentUserId}] 생성된 WebSocket 인스턴스 닫는 중 (URL: ${newWsInstance.url}).`);
+        newWsInstance.close();
+      } else if (ws && ws.url.includes(`userId=${currentUserId}`)) {
+        // newWsInstance가 할당되기 전에 cleanup이 호출되거나, 이전 상태의 ws를 닫아야 할 경우
+        console.log(`[클린업 ${currentUserId}] 상태에 있던 WebSocket 연결 닫는 중 (URL: ${ws.url}).`);
         ws.close();
-        // setWs(null); // 여기서 setWs(null)을 하면 다음 사용자 초기화 시 이전 ws가 남아있을 수 있는 문제 방지
       }
-      // StrictMode의 첫 번째 unmount 시, 다음 mount에서 다시 initializeUser가 실행되도록
-      // effectRanForUser에서 현재 ID를 제거하지 *않습니다*. 상단의 가드가 이를 처리합니다.
-      // 사용자가 명시적으로 변경될 때만 effectRanForUser에서 이전 ID를 제거하는 것이 더 나을 수 있습니다 (handleUserChange에서).
-      // 하지만 현재는 currentUserId 변경 시 effect가 다시 돌고, 그 안에서 effectRanForUser.has 체크를 하므로 괜찮습니다.
     };
-  // 의존성 배열: handleIncomingMessage는 useCallback으로 안정화, recipientId와 unreadCounts는 onmessage 내부 로직에 영향
-  }, [currentUserId, isSodiumReady, recipientId, handleIncomingMessage, unreadCounts, ws]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserId, isSodiumReady, recipientId, handleIncomingMessage, unreadCounts]);
+  // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ESLint 비활성화 주석 추가 ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-  // recipientId 또는 currentUserId가 변경될 때 메시지 로드 및 읽음 처리
+  // recipientId 또는 currentUserId가 변경될 때 메시지 로드 및 읽음 처리 useEffect
   useEffect(() => {
     if (recipientId && currentUserId && isSodiumReady) {
       console.log(`채팅 상대 또는 현재 사용자 변경: ${currentUserId} <-> ${recipientId}. 메시지 로드 및 읽음 처리.`);
@@ -271,7 +246,8 @@ export default function App() {
     } else if (!recipientId && currentUserId) {
         setMessages([]);
     }
-  }, [recipientId, currentUserId, isSodiumReady, unreadCounts]); // unreadCounts도 의존성에 추가
+  }, [recipientId, currentUserId, isSodiumReady, unreadCounts]);
+
 
   // ... (saveMessageToLocalStorage, handleSendMessage, handleUserChange, handleRecipientSelect, formatTimestamp 및 JSX는 이전과 동일) ...
   const saveMessageToLocalStorage = (newMessage, convKeyUserId1, convKeyUserId2) => {
@@ -310,21 +286,13 @@ export default function App() {
 
   const handleUserChange = (event) => {
     const newUserId = event.target.value;
-    console.log(`사용자 선택 변경 시도: ${currentUserId} -> ${newUserId}`);
-    if (newUserId !== currentUserId) {
-      // StrictMode 이중 실행 방지를 위해, 이전 사용자의 "초기화 시도됨" 상태를 여기서 지워줍니다.
-      // 이렇게 하면 다음 번에 이전 사용자를 다시 선택했을 때 useEffect가 정상적으로 실행됩니다.
-      if (process.env.NODE_ENV === 'development' && currentUserId) {
-        initializationAttemptedForUser.current.delete(currentUserId);
-      }
+    if (newUserId !== currentUserId) { 
+      // 이전 사용자에 대한 effectRanForUser 상태를 여기서 지우지 않습니다.
+      // useEffect가 currentUserId 변경에 따라 실행될 때 내부적으로 처리합니다.
       setCurrentUserId(newUserId);
-
       const otherUsers = USER_IDS.filter(id => id !== newUserId);
-      if (otherUsers.length > 0) {
-        setRecipientId(otherUsers[0]);
-      } else {
-        setRecipientId('');
-      }
+      if (otherUsers.length > 0) { setRecipientId(otherUsers[0]); }
+      else { setRecipientId(''); }
     }
   };
   const handleRecipientSelect = (selectedRecipientId) => {
