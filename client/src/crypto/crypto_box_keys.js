@@ -1,6 +1,11 @@
 // client/src/crypto/crypto_box_keys.js
 import sodium from 'libsodium-wrappers';
 
+// API 서버의 기본 URL을 환경 변수에서 가져오거나, 로컬 개발 시 기본값을 사용합니다.
+// 이 값은 Netlify 환경 변수 REACT_APP_API_BASE_URL에 설정된
+// 실제 배포된 백엔드 서버의 주소 (예: https://내-서버-이름.onrender.com)가 됩니다.
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8888';
+
 /**
  * crypto_box 키 쌍(공개키, 개인키)을 생성합니다.
  * @returns {Promise<{publicKey: string, privateKey: string}>} Base64로 인코딩된 공개키와 개인키 객체
@@ -21,20 +26,21 @@ export async function generateCryptoBoxKeyPair() {
  * @param {string} publicKeyB64 Base64로 인코딩된 공개키
  */
 export async function registerPublicKey(userId, publicKeyB64) {
-  // 서버의 공개키 등록 엔드포인트 (예시)
-  // 실제 서버 구현에 맞게 URL과 요청 본문을 수정해야 합니다.
-  const response = await fetch('https://privlychat.netlify.app/', {
+  // ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ 수정된 부분 ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+  // API_BASE_URL을 사용하여 전체 요청 URL을 구성합니다.
+  const response = await fetch(`${API_BASE_URL}/keys/register_box_key`, {
+  // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ 수정된 부분 ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, publicKey: publicKeyB64 }), // 서버에서 받을 필드명에 맞추세요.
+    body: JSON.stringify({ userId, publicKey: publicKeyB64 }),
   });
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`공개키 등록 실패: ${response.status} ${errorBody}`);
+    // 오류 메시지에 요청 URL을 포함하면 디버깅에 도움이 됩니다.
+    throw new Error(`공개키 등록 실패 (${response.status}) URL: ${API_BASE_URL}/keys/register_box_key. 서버 응답: ${errorBody}`);
   }
-  console.log(`${userId}의 공개키 서버에 등록 요청 완료.`);
-  // 필요하다면 서버 응답을 반환하거나 처리할 수 있습니다.
-  // return response.json();
+  console.log(`${userId}의 공개키 서버에 등록 요청 완료 (URL: ${API_BASE_URL}/keys/register_box_key).`);
+  // return response.json(); // 필요시
 }
 
 /**
@@ -44,18 +50,17 @@ export async function registerPublicKey(userId, publicKeyB64) {
  * @returns {Promise<string>} Base64로 인코딩된 공개키
  */
 export async function fetchPublicKey(userId) {
-  // 서버의 공개키 조회 엔드포인트 (예시)
-  // 실제 서버 구현에 맞게 URL을 수정해야 합니다.
-  const response = await fetch(`https://privlychat.netlify.app/${userId}`);
+  // ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ 수정된 부분 ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+  // API_BASE_URL을 사용하고, 경로를 서버 라우트와 일치시킵니다.
+  const response = await fetch(`${API_BASE_URL}/keys/box_key/${userId}`);
+  // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ 수정된 부분 ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`${userId}의 공개키 조회 실패: ${response.status} ${errorBody}`);
+    throw new Error(`${userId}의 공개키 조회 실패 (${response.status}) URL: ${API_BASE_URL}/keys/box_key/${userId}. 서버 응답: ${errorBody}`);
   }
   const data = await response.json();
-  // 서버가 { publicKey: "base64_string" } 형태로 반환한다고 가정합니다.
-  // 실제 서버 응답 구조에 맞게 publicKeyB64를 추출하세요.
   if (!data.publicKey) {
-      throw new Error(`${userId}의 공개키 데이터 형식이 잘못되었습니다. 'publicKey' 필드가 필요합니다.`);
+      throw new Error(`${userId}의 공개키 데이터 형식이 잘못되었습니다. 'publicKey' 필드가 필요합니다. 수신 데이터: ${JSON.stringify(data)}`);
   }
   return data.publicKey;
 }
