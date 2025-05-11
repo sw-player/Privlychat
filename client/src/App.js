@@ -216,7 +216,7 @@ export default function App() {
       });
     };
   // ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ 의존성 배열에 명시적으로 추가 ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
-  }, [currentUserId, isSodiumReady, recipientId, handleIncomingMessage, unreadCounts]);
+  }, [currentUserId, isSodiumReady, recipientId, handleIncomingMessage, unreadCounts, ws]);
   // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ 의존성 배열에 명시적으로 추가 ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
   useEffect(() => {
