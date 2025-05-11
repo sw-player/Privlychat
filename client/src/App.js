@@ -1,5 +1,5 @@
 // client/src/App.js
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react'; // useCallback 추가
 import './App.css';
 import sodium from 'libsodium-wrappers';
 
@@ -25,7 +25,7 @@ export default function App() {
   const [serverInfo, setServerInfo] = useState('사용자를 선택해주세요.');
   const [errorInfo, setErrorInfo] = useState('');
   const [isSodiumReady, setIsSodiumReady] = useState(false);
-  const [unreadCounts, setUnreadCounts] = useState({}); // 읽지 않은 메시지 수 상태 추가
+  const [unreadCounts, setUnreadCounts] = useState({});
 
   const currentUserKeysRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -45,16 +45,66 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // handleIncomingMessage 함수를 useCallback으로 메모이제이션
+  const handleIncomingMessage = useCallback(async (senderId, payload, isCurrentChat) => {
+    if (!currentUserKeysRef.current?.privateKey) {
+      console.error(`[${currentUserId} RECV] 나의 개인키(ref)가 없습니다. 복호화 불가.`);
+      setErrorInfo('개인키(ref)가 없어 메시지를 복호화할 수 없습니다.');
+      return;
+    }
+    try {
+      const senderPublicKeyB64 = await fetchPublicKey(senderId);
+      if (!senderPublicKeyB64) throw new Error(`${senderId} 공개키 없음`);
+      const decryptedText = await decryptMessage(
+        payload.ciphertextB64, payload.nonceB64,
+        senderPublicKeyB64, currentUserKeysRef.current.privateKey
+      );
+      const newMessage = { sender: senderId, text: decryptedText, type: 'received', timestamp: new Date() };
+      
+      const conversationKey = getConversationKey(currentUserId, senderId);
+      const storedMessagesString = localStorage.getItem(conversationKey);
+      let currentConversationMessages = [];
+      if (storedMessagesString) {
+        try { currentConversationMessages = JSON.parse(storedMessagesString); }
+        catch (e) { console.error(`메시지 저장 중 ${conversationKey} 파싱 오류:`, e); }
+      }
+      currentConversationMessages.push(newMessage);
+      localStorage.setItem(conversationKey, JSON.stringify(currentConversationMessages));
+      console.log(`${conversationKey}에 메시지 저장 완료. 총 ${currentConversationMessages.length}개.`);
+
+      if (isCurrentChat) {
+        setMessages(prev => [...prev, newMessage]);
+      } else {
+        console.log(`${senderId}로부터 온 새 메시지를 백그라운드에 저장 및 알림 처리됨.`);
+      }
+    } catch (error) {
+      console.error(`[${currentUserId} RECV] 메시지 복호화 오류:`, error);
+      setErrorInfo(`메시지 복호화 실패: ${error.message}`);
+      if (isCurrentChat) {
+        setMessages(prev => [...prev, { sender: senderId, text: `(암호문 복호화 실패)`, type: 'received-error', timestamp: new Date() }]);
+      }
+    }
+  }, [currentUserId]); // currentUserId가 변경되면 이 함수도 새로 생성되어야 함
+
   useEffect(() => {
-    if (!isSodiumReady) { /* ... 이전과 동일 ... */ return; }
-    if (!currentUserId) { /* ... 이전과 동일 ... */ return; }
-    if (process.env.NODE_ENV === 'development' && effectRanForUser.current.has(currentUserId)) { /* ... 이전과 동일 ... */ return; }
+    if (!isSodiumReady) { return; }
+    if (!currentUserId) {
+      setServerInfo('먼저 사용자를 선택해주세요.');
+      if (ws) { ws.close(); setWs(null); }
+      currentUserKeysRef.current = null;
+      setMessages([]);
+      setRecipientId('');
+      return;
+    }
+
+    if (process.env.NODE_ENV === 'development' && effectRanForUser.current.has(currentUserId)) {
+      return;
+    }
 
     console.log(`[Effect ${currentUserId}] 사용자 초기화 및 WebSocket 연결 시작...`);
     setMessages([]);
     setErrorInfo('');
     setServerInfo(`'${currentUserId.replace('_ws','')}' 사용자 초기화 중...`);
-    // setUnreadCounts({}); // 사용자 변경 시 모든 읽지 않음 카운트 초기화 (선택적)
 
     if (ws) { ws.close(); setWs(null); }
     currentUserKeysRef.current = null;
@@ -104,48 +154,52 @@ export default function App() {
             const receivedMsg = JSON.parse(event.data);
             console.log(`[WS ${currentUserId}] 메시지 수신:`, receivedMsg);
             if (receivedMsg.type === 'message' && receivedMsg.senderId && receivedMsg.payload) {
-              // 현재 채팅 상대가 아닌 사용자로부터 메시지가 오면 unreadCounts 업데이트
-              if (receivedMsg.senderId !== recipientId) {
+              const isCurrentChatActive = receivedMsg.senderId === recipientId;
+              if (!isCurrentChatActive) { // 현재 채팅 상대가 아닌 경우에만 unreadCounts 업데이트
                 setUnreadCounts(prevCounts => ({
                   ...prevCounts,
                   [receivedMsg.senderId]: (prevCounts[receivedMsg.senderId] || 0) + 1,
                 }));
                 console.log(`[Unread] ${receivedMsg.senderId}로부터 새 메시지. 현재 unread:`, (unreadCounts[receivedMsg.senderId] || 0) + 1);
-                // 메시지 저장 및 (선택적) 알림 처리
-                handleIncomingMessage(receivedMsg.senderId, receivedMsg.payload, false); // isCurrentChat = false
-              } else {
-                // 현재 채팅 상대의 메시지이면 바로 처리
-                handleIncomingMessage(receivedMsg.senderId, receivedMsg.payload, true); // isCurrentChat = true
               }
+              handleIncomingMessage(receivedMsg.senderId, receivedMsg.payload, isCurrentChatActive);
             } else if (receivedMsg.type === 'info') { setServerInfo(receivedMsg.message);
             } else if (receivedMsg.type === 'error') { setErrorInfo(`서버 오류: ${receivedMsg.message}`); }
           } catch (e) { console.error('수신 메시지 파싱 오류:', e); setErrorInfo('수신 메시지 처리 중 오류.'); }
         };
-        newWs.onclose = (event) => { /* ... 이전과 동일 ... */
-            console.log(`[WS ${currentUserId}] 서버와 연결 끊김.`);
-            setServerInfo('서버와 연결이 끊어졌습니다.');
-            if (ws === newWs) { setWs(null); }
-            if (process.env.NODE_ENV === 'development') { effectRanForUser.current.delete(currentUserId); }
+        newWs.onclose = (event) => {
+          console.log(`[WS ${currentUserId}] 서버와 연결 끊김.`);
+          setServerInfo('서버와 연결이 끊어졌습니다.');
+          if (ws === newWs) { setWs(null); }
+          if (process.env.NODE_ENV === 'development') {
+            effectRanForUser.current.delete(currentUserId);
+          }
         };
-        newWs.onerror = (error) => { /* ... 이전과 동일 ... */
-            console.error(`[WS ${currentUserId}] WebSocket 오류:`, error);
-            setErrorInfo('WebSocket 연결 오류.');
-            if (ws === newWs) { setWs(null); }
-            if (process.env.NODE_ENV === 'development') { effectRanForUser.current.delete(currentUserId); }
+        newWs.onerror = (error) => {
+          console.error(`[WS ${currentUserId}] WebSocket 오류:`, error);
+          setErrorInfo('WebSocket 연결 오류.');
+          if (ws === newWs) { setWs(null); }
+          if (process.env.NODE_ENV === 'development') {
+            effectRanForUser.current.delete(currentUserId);
+          }
         };
-      } catch (err) { /* ... 이전과 동일 ... */
+      } catch (err) {
         console.error(`[${currentUserId}] 사용자 초기화 중 심각한 오류:`, err);
         setErrorInfo(`초기화 오류: ${err.message}`);
         setWs(null); currentUserKeysRef.current = null;
-        if (process.env.NODE_ENV === 'development') { effectRanForUser.current.delete(currentUserId); }
+        if (process.env.NODE_ENV === 'development') {
+          effectRanForUser.current.delete(currentUserId);
+        }
       }
     };
     initializeUser();
-    return () => { /* ... 이전과 동일 ... */
+    return () => {
       console.log(`useEffect 클린업 (currentUserId: ${currentUserId}).`);
       if (ws && ws.url.includes(`userId=${currentUserId}`)) { ws.close(); }
     };
-  }, [currentUserId, isSodiumReady, recipientId, ws]); // recipientId와 ws를 의존성 배열에 추가 (onmessage 핸들러가 최신 recipientId 참조하도록)
+  // ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ 의존성 배열 수정 ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+  }, [currentUserId, isSodiumReady, recipientId, handleIncomingMessage, unreadCounts]);
+  // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ 의존성 배열 수정 ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
   useEffect(() => {
     if (recipientId && currentUserId && isSodiumReady) {
@@ -162,7 +216,6 @@ export default function App() {
         setMessages([]);
       }
       setMessageInput('');
-      // 현재 채팅 상대의 읽지 않은 메시지 카운트 초기화
       if (unreadCounts[recipientId] && unreadCounts[recipientId] > 0) {
         console.log(`[Unread] ${recipientId} 채팅방 열림. 읽지 않은 메시지 ${unreadCounts[recipientId]}개 초기화.`);
         setUnreadCounts(prevCounts => ({
@@ -173,9 +226,9 @@ export default function App() {
     } else if (!recipientId && currentUserId) {
         setMessages([]);
     }
-  }, [recipientId, currentUserId, isSodiumReady, unreadCounts]); // unreadCounts도 의존성에 추가
+  }, [recipientId, currentUserId, isSodiumReady, unreadCounts]);
 
-  const saveMessageToLocalStorage = (newMessage, convKeyUserId1, convKeyUserId2) => {
+  const saveMessageToLocalStorage = (newMessage, convKeyUserId1, convKeyUserId2) => { /* ... 이전과 동일 ... */
     if (!convKeyUserId1 || !convKeyUserId2) return;
     const conversationKey = getConversationKey(convKeyUserId1, convKeyUserId2);
     const storedMessagesString = localStorage.getItem(conversationKey);
@@ -186,37 +239,9 @@ export default function App() {
     }
     currentConversationMessages.push(newMessage);
     localStorage.setItem(conversationKey, JSON.stringify(currentConversationMessages));
-    console.log(`${conversationKey}에 메시지 저장 완료. 총 ${currentConversationMessages.length}개.`);
   };
 
-  const handleIncomingMessage = async (senderId, payload, isCurrentChat) => {
-    if (!currentUserKeysRef.current?.privateKey) { /* ... 이전과 동일 ... */ return; }
-    try {
-      const senderPublicKeyB64 = await fetchPublicKey(senderId);
-      if (!senderPublicKeyB64) throw new Error(`${senderId} 공개키 없음`);
-      const decryptedText = await decryptMessage(
-        payload.ciphertextB64, payload.nonceB64,
-        senderPublicKeyB64, currentUserKeysRef.current.privateKey
-      );
-      const newMessage = { sender: senderId, text: decryptedText, type: 'received', timestamp: new Date() };
-      // 메시지를 localStorage에 저장 (현재 사용자와 송신자 ID 기준)
-      saveMessageToLocalStorage(newMessage, currentUserId, senderId);
-
-      if (isCurrentChat) {
-        setMessages(prev => [...prev, newMessage]);
-      } else {
-        console.log(`${senderId}로부터 온 새 메시지를 백그라운드에 저장 및 알림 처리됨.`);
-      }
-    } catch (error) { /* ... 이전과 동일 ... */
-      console.error(`[${currentUserId} RECV] 메시지 복호화 오류:`, error);
-      setErrorInfo(`메시지 복호화 실패: ${error.message}`);
-      if (isCurrentChat) {
-        setMessages(prev => [...prev, { sender: senderId, text: `(암호문 복호화 실패)`, type: 'received-error', timestamp: new Date() }]);
-      }
-    }
-  };
-
-  const handleSendMessage = async () => {
+  const handleSendMessage = async () => { /* ... 이전과 동일 ... */
     if (!currentUserId || !messageInput.trim() || !ws || ws.readyState !== WebSocket.OPEN || !currentUserKeysRef.current?.privateKey || !recipientId) {
       setErrorInfo('메시지 전송 불가 조건 확인'); return;
     }
@@ -228,11 +253,10 @@ export default function App() {
       const messageToSend = { type: 'message', recipientId: recipientId, payload: encryptedPayload };
       ws.send(JSON.stringify(messageToSend));
       const newMessage = { sender: currentUserId, text: messageInput, type: 'sent', timestamp: new Date() };
-      // 메시지를 localStorage에 저장
       saveMessageToLocalStorage(newMessage, currentUserId, recipientId);
       setMessages(prev => [...prev, newMessage]);
       setMessageInput('');
-    } catch (error) { /* ... 이전과 동일 ... */
+    } catch (error) {
       console.error(`[${currentUserId} SEND] 메시지 전송 오류:`, error);
       setErrorInfo(`메시지 전송 실패: ${error.message}`);
     }
@@ -255,11 +279,10 @@ export default function App() {
   };
 
   if (!isSodiumReady) { /* ... 이전과 동일 ... */ }
-  return (
+  return ( /* ... 이전 JSX와 동일 ... */
     <div className="App-layout">
       <aside className="sidebar">
         <div className="current-user-selector">
-          {/* ... 이전과 동일 ... */}
           <label htmlFor="user-select">현재 사용자: </label>
           <select id="user-select" value={currentUserId} onChange={handleUserChange}>
             <option value="">-- 사용자 선택 --</option>
@@ -279,7 +302,6 @@ export default function App() {
                   onClick={() => handleRecipientSelect(id)}
                 >
                   {id.replace('_ws', '')}
-                  {/* 읽지 않은 메시지 카운트 배지 표시 */}
                   {unreadCounts[id] > 0 && (
                     <span className="unread-badge">{unreadCounts[id]}</span>
                   )}
@@ -289,7 +311,6 @@ export default function App() {
           </>
         )}
       </aside>
-      {/* ... 나머지 JSX는 이전과 동일 ... */}
       <main className="chat-area">
         <header className="App-header">
           <h1>Privlychat</h1>
