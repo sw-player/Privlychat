@@ -17,12 +17,12 @@ module.exports = {
       };
 
       // Buffer polyfill (필요한 경우)
-      // webpackConfig.plugins = [
-      //   ...(webpackConfig.plugins || []),
-      //   new webpack.ProvidePlugin({
-      //     Buffer: ['buffer', 'Buffer'],
-      //   }),
-      // ];
+       webpackConfig.plugins = [
+         ...(webpackConfig.plugins || []),
+         new webpack.ProvidePlugin({
+           Buffer: ['buffer', 'Buffer'],
+         }),
+       ];
 
       // Node.js core 모듈 polyfill을 위한 다른 설정 (필요 시)
       // webpackConfig.resolve.alias = {
